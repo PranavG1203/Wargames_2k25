@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Configuration
-GAME_SCRIPT_PATH="$(pwd)/game.sh"  # Use the current directory for the game script
+GAME_SCRIPT_PATH=".-/game.sh"  # Use the current directory for the game script
 COMMANDS_DIR="/usr/local/bin"             # Directory to store the standalone commands
 
 # Function to create the command file
