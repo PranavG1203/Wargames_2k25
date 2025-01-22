@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # Configuration
-GAME_SCRIPT_PATH=".-/game.sh"  # Use the current directory for the game script
-COMMANDS_DIR="/usr/local/bin"             # Directory to store the standalone commands
+GAME_SCRIPT_PATH="./game.sh"  # Path to the new game script
+COMMANDS_DIR="/usr/local/bin"  # Directory to store the standalone commands
 
 # Function to create the command file
 create_command() {
@@ -43,9 +43,6 @@ install_game_commands() {
 
   # Command for starting the game (begin)
   create_command "begin" "bash $GAME_SCRIPT_PATH begin"
-
-  # Command for leveling up (levelup)
-  create_command "levelup" "bash $GAME_SCRIPT_PATH levelup"
 
   # Command for soft reset (reset_soft)
   create_command "reset_soft" "bash $GAME_SCRIPT_PATH reset_soft"

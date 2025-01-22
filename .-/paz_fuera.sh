@@ -2,7 +2,7 @@
 
 # Configuration
 COMMANDS_DIR="/usr/local/bin"  # Directory where the commands were installed
-COMMANDS=("begin" "levelup" "reset_soft" "reset_hard")  # List of commands to remove
+COMMANDS=("begin" "reset_soft" "reset_hard")  # List of commands to remove
 
 # Function to remove the command file
 remove_command() {
@@ -27,3 +27,4 @@ for command in "${COMMANDS[@]}"; do
 done
 
 echo "All game-related commands have been removed successfully!"
+echo "Peace out ; )" | figlet

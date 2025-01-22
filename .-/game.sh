@@ -3,206 +3,133 @@
 set -e
 
 # Configuration
-HIDDEN_DIR="/.ctfd_game_data"           # Hidden directory in the root directory
-CURRENT_LEVEL_FILE="$HIDDEN_DIR/current_level.txt"  # Hidden file to track the current level
-PLAYER_NAME_FILE="$HIDDEN_DIR/player_name.txt"      # File to store the player's name
-LEVELS_REPO_LIST=("https://github.com/PranavG1203/meta_wargames_trial_1.git" "https://github.com/PranavG1203/meta_wargames_trial_1.git")  # List of level Git repositories
-LEVEL_PASSWORDS=("alex" "mike" "1203")   # Passwords for each level
+HIDDEN_DIR="/.wlug"              # Directory to store game state
+PLAYER_STATE_FILE="$HIDDEN_DIR/player_state.txt"  # File to store player progress
+LEVEL_CONTAINERS=("meta_base_temp" "meta_base_temp" "meta_base_temp")     # Docker image tags for levels
+SERVER_URL="http://localhost:5000/api/flag/submit"  # Server URL for flag validation
+CONTAINER_NAME_PREFIX="Meta2k25"        # Prefix for container names
 
-# Function to initialize the game
+# Check if Docker is installed
+if ! command -v docker &>/dev/null; then
+  echo "Docker is not installed. Please install Docker to play the game."
+  exit 1
+fi
+
+# Check if a user exists
+check_existing_user() {
+  if [[ -f "$PLAYER_STATE_FILE" ]]; then
+    echo "Existing user found. Resuming game..."
+    local player_state
+    player_state=$(sudo cat "$PLAYER_STATE_FILE")
+    local player_id
+    player_id=$(echo "$player_state" | cut -d':' -f1)
+    local current_level
+    current_level=$(echo "$player_state" | cut -d':' -f2)
+    echo "Welcome back, $player_id! Resuming at Level $current_level."
+    start_level "$current_level" "$player_id"
+    exit 0
+  fi
+}
+
+# Initialize the game
 begin() {
-  # Ask for player name
+  check_existing_user  # Check for existing user state
+
   echo "Enter your name:"
   read -r player_name
-  echo "Hello, $player_name! Welcome to the game."
 
-  sudo mkdir -p "$HIDDEN_DIR"  # Create the hidden directory in the root directory
-  sudo chmod 700 "$HIDDEN_DIR"  # Restrict access to the hidden directory
-  sudo touch "$CURRENT_LEVEL_FILE"
-  sudo chmod 600 "$CURRENT_LEVEL_FILE"  # Restrict access to the file
-  echo 1 | sudo tee "$CURRENT_LEVEL_FILE" > /dev/null  # Initialize current level to 1
+  # Generate a unique ID for the player
+  local salt
+  salt=$(date +%s%N | sha256sum | head -c 10)
+  local unique_name="${player_name}_${salt}"
 
-  echo "Game initialized! Loading Level 0..."
+  echo "Hello, $player_name! Your unique ID is $unique_name."
 
-  # Clone the first level's repository (Level 0)
-  local level_0_repo="${LEVELS_REPO_LIST[0]}"
-  local level_0_dir="./level_0"
+  # Create hidden directory and state file
+  sudo mkdir -p "$HIDDEN_DIR"
+  sudo chmod 700 "$HIDDEN_DIR"
+  sudo touch "$PLAYER_STATE_FILE"
+  sudo chmod 600 "$PLAYER_STATE_FILE"
 
-  if [[ ! -d "$level_0_dir" ]]; then
-    git clone "$level_0_repo" "$level_0_dir" > /dev/null 2>&1
-    if [[ $? -ne 0 ]]; then
-      echo "Error: Failed to load Level 0 template."
-      return 1
-    fi
-  else
-    echo "Level 0 template already exists."
-  fi
-
-  echo "Level 0 is loaded. Setting up level, Please be patient..."
-  
-  # Run setup.sh for Level 0 if it exists and is executable
-  if [[ -f "$level_0_dir/setup.sh" ]]; then
-    if [[ -x "$level_0_dir/setup.sh" ]]; then
-      # Change to the level directory before running the setup script
-      cd "$level_0_dir"
-      bash setup.sh
-      cd -  # Return to the previous directory after setup
-    else
-      chmod +x "$level_0_dir/setup.sh" > /dev/null  # Make it executable
-      if [[ -x "$level_0_dir/setup.sh" ]]; then
-        # Change to the level directory before running the setup script
-        cd "$level_0_dir"
-        bash setup.sh
-        cd -  # Return to the previous directory after setup
-      else
-        echo "Template issue."
-        exit 1
-      fi
-    fi
-  else
-    echo "Error: No setup.sh found in Level 0. Skipping setup."
-  fi
-
-  echo "Level 0 is ready. Solve it and use 'levelup' with the correct password to proceed!"
+  # Save the initial state (Level 1)
+  echo "$unique_name:1" | sudo tee "$PLAYER_STATE_FILE" > /dev/null
+  echo "Game initialized! Starting Level 1..."
+  start_level 1 "$unique_name"
 }
 
-# Function to load the next level
-load_next_level() {
-  local level_id
-  level_id=$(sudo cat "$CURRENT_LEVEL_FILE")
-  local next_level=$((level_id + 1))
+# Start a level in a Docker container
+start_level() {
+  local level=$1
+  local player_id=$2
+  local container_name="${CONTAINER_NAME_PREFIX}_${player_id}_${level}"
 
-  if [[ $next_level -gt ${#LEVELS_REPO_LIST[@]} ]]; then
-    echo "Congratulations! You have completed all levels."
-    return
-  fi
+  # Dynamically construct the image name
+  local image_name="pranavg1203/meta2k25:${LEVEL_CONTAINERS[$((level - 1))]}"
 
-  echo "Loading Level $next_level..."
-  local repo_url="${LEVELS_REPO_LIST[$((next_level - 1))]}"
-  local level_dir="./level_$next_level"
+  echo "Starting Level $level for $player_id using image $image_name..."
 
-  # Clone the repository if not already cloned
-  if [[ ! -d "$level_dir" ]]; then
-    git clone "$repo_url" "$level_dir" > /dev/null 2>&1
-    if [[ $? -ne 0 ]]; then
-      echo "Error: Failed to clone Level $next_level repository."
-      return 1
-    fi
-  fi
+  # Run the container and capture its exit code
+  docker run -it --rm \
+    --name "$container_name" \
+    -e PLAYER_ID="$player_id" \
+    -e LEVEL="$level" \
+    -e SERVER_URL="$SERVER_URL" \
+    "$image_name"
 
-  # Check if setup.sh exists and is executable before running
-  if [[ -f "$level_dir/setup.sh" ]]; then
-    # Check if setup.sh is executable
-    if [[ -x "$level_dir/setup.sh" ]]; then
-      # Change to the level directory before running the setup script
-      cd "$level_dir"
-      echo "Setting up level $next_level..."
-      bash setup.sh
-      cd -  # Return to the previous directory after setup
-    else
-      chmod +x "$level_dir/setup.sh"  # Make sure it's executable
-      if [[ -x "$level_dir/setup.sh" ]]; then
-        cd "$level_dir"
-        bash setup.sh
-        cd -  # Return to the previous directory after setup
-      else
-        echo "Error: Could not make setup.sh executable. Exiting."
-        exit 1
-      fi
-    fi
-  fi
+  local exit_code=$?
 
-  echo $next_level | sudo tee "$CURRENT_LEVEL_FILE" > /dev/null
-  echo "Level $next_level is ready. Solve it to proceed!"
-}
-
-# Custom command to proceed to the next level
-levelup() {
-  local level_id
-  level_id=$(sudo cat "$CURRENT_LEVEL_FILE")
-
-  echo "Enter the password for Level $level_id:"
-  read -r password
-
-  if [[ "$password" == "${LEVEL_PASSWORDS[$((level_id - 1))]}" ]]; then
-    load_next_level
+  # Handle container exit codes
+  if [[ $exit_code -eq 1 ]]; then
+    # Correct flag: Proceed to the next level
+    echo "Congratulations! Proceeding to the next level..."
+    local next_level=$((level + 1))
+    echo "$player_id:$next_level" | sudo tee "$PLAYER_STATE_FILE" > /dev/null
+    start_level "$next_level" "$player_id"  # Start the next level
+  elif [[ $exit_code -eq 0 ]]; then
+    # Player exited manually: Restart the same level
+    echo "You exited the level without solving it. Restarting Level $level..."
+    start_level "$level" "$player_id"
   else
-    echo "Incorrect password. Try again."
+    echo "Unexpected error occurred (exit code $exit_code)."
+    exit 1
   fi
 }
 
-# Soft reset function (resets player data but not the level)
+# Reset to Level 1 but keep user data
 reset_soft() {
   echo "Performing a soft reset..."
 
-  # Save the current level before resetting
-  local current_level
-  current_level=$(sudo cat "$CURRENT_LEVEL_FILE")
-  
-  # Reset any other player progress or data (if needed)
-  # You can add custom code here to clear player-specific data or files
-  
-  # Re-clone the repository of the current level
-  local level_repo="${LEVELS_REPO_LIST[$((current_level - 1))]}"
-  local level_dir="./level_$current_level"
-
-  if [[ -d "$level_dir" ]]; then
-    rm -rf "$level_dir"  # Remove the existing directory (if any) to re-clone
+  if [[ ! -f "$PLAYER_STATE_FILE" ]]; then
+    echo "No existing user found. Use 'begin' to start a new game."
+    exit 1
   fi
 
-  # Clone the repository for the current level
-  echo "Cloning repository for Level $current_level..."
-  git clone "$level_repo" "$level_dir" > /dev/null 2>&1
-  if [[ $? -ne 0 ]]; then
-    echo "Error: Failed to clone Level $current_level repository."
-    return 1
-  fi
+  local player_state
+  player_state=$(sudo cat "$PLAYER_STATE_FILE")
+  local player_id
+  player_id=$(echo "$player_state" | cut -d':' -f1)
 
-  # Run setup.sh for the cloned level
-  if [[ -f "$level_dir/setup.sh" ]]; then
-    if [[ -x "$level_dir/setup.sh" ]]; then
-      cd "$level_dir"
-      bash setup.sh  # Run the setup script
-      cd -  # Return to the previous directory after setup
-    else
-      chmod +x "$level_dir/setup.sh"  # Make the script executable if needed
-      cd "$level_dir"
-      bash setup.sh  # Run the setup script
-      cd -  # Return to the previous directory after setup
-    fi
-  else
-    echo "Error: No setup.sh found in Level $current_level. Skipping setup."
-  fi
-  
-  # Restore the current level to the file
-  echo "$current_level" | sudo tee "$CURRENT_LEVEL_FILE" > /dev/null
-
-  echo "Soft reset completed. You are back at Level $current_level, and the level is reloaded!"
+  echo "Resetting $player_id to Level 1..."
+  echo "$player_id:1" | sudo tee "$PLAYER_STATE_FILE" > /dev/null
+  start_level 1 "$player_id"
 }
 
-# Hard reset function (resets player data and level progress)
+# Completely reset the game, deleting all user data
 reset_hard() {
   echo "Performing a hard reset..."
 
-  # Remove the current level file (resets progress)
-  sudo rm -f "$CURRENT_LEVEL_FILE"
-  
-  # Remove any cloned levels (clear all progress)
-  rm -rf ./level_*
-  
-  # Reinitialize the game
-  begin
+  if [[ -f "$PLAYER_STATE_FILE" ]]; then
+    sudo rm -f "$PLAYER_STATE_FILE"
+    echo "User data deleted. Starting a fresh game."
+  fi
 
-  echo "Hard reset completed. The game is now reset to Level 1."
+  begin
 }
 
 # Entry point for the script
 case "$1" in
   begin)
     begin
-    ;;
-  levelup)
-    levelup
     ;;
   reset_soft)
     reset_soft
@@ -211,7 +138,7 @@ case "$1" in
     reset_hard
     ;;
   *)
-    echo "Usage: $0 {begin|levelup|reset_soft|reset_hard}"
+    echo "Usage: $0 {begin|reset_soft|reset_hard}"
     exit 1
     ;;
 esac
