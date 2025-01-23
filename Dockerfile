@@ -23,4 +23,4 @@ COPY levelup.sh /usr/local/bin/levelup
 RUN chmod +x /usr/local/bin/levelup
 
 # Default command
-CMD ["sh"]
+CMD ["/bin/bash"]

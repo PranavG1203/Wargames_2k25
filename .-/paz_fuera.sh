@@ -19,6 +19,12 @@ remove_command() {
   fi
 }
 
+# Ensure the script runs on Linux
+if [[ "$(uname -s)" != "Linux" ]]; then
+  echo "This script is designed to run only on Linux systems."
+  exit 1
+fi
+
 # Remove all the listed commands
 echo "Removing all game-related commands..."
 
@@ -26,5 +32,7 @@ for command in "${COMMANDS[@]}"; do
   remove_command "$command"
 done
 
+sudo rm -rf /.wlug
+
 echo "All game-related commands have been removed successfully!"
-echo "Peace out ; )" | figlet
+echo "Peace out ;)" | figlet || echo "Peace out ;)"
