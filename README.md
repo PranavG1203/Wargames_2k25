@@ -13,3 +13,9 @@ Then, run the game using the following command:
 ```
 sudo bash initiate.sh
 ```
+
+Type `begin` to start the game:
+
+```
+begin
+```
