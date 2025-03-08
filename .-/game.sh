@@ -5,25 +5,18 @@ set -e
 # Configuration
 HIDDEN_DIR="/.wlug"              # Directory to store game state
 PLAYER_STATE_FILE="$HIDDEN_DIR/player_state.txt"  # File to store player progress
-LEVEL_CONTAINERS=("meta_2k25_base" "meta_2k25_base" "meta_2k25_base")     # Docker image tags for levels
+LEVEL_CONTAINERS=("warg1" "warg2" "warg3" "warg4")  # Docker image tags for levels
 SERVER_URL="http://172.17.0.1:5000/api/flag/submit"  # Server URL for flag validation
-CONTAINER_NAME_PREFIX="Meta2k25"        # Prefix for container names
-SUCCESS_LOG_PATTERN="(valid|success)"
+CONTAINER_NAME_PREFIX="CTF"  # Prefix for container names
+SUCCESS_LOG_PATTERN="(valid|success|move)"  # Fixed regex pattern
 
 # Check if Docker is installed
 if ! command -v docker &>/dev/null; then
-  echo "Docker is not installed. Please install Docker to play the game."
-  exit 1
+  echo "Docker is not installed. Installing Docker..."
+  sudo apt update && sudo apt install -y docker.io
+  sudo systemctl start docker
+  sudo systemctl enable docker
 fi
-
-# Cleanup Docker environment before each level
-cleanup_docker() {
-  echo "Cleaning up Docker environment..."
-  docker rm -f $(docker ps -aq) 2>/dev/null || true
-  docker rmi -f $(docker images -q) 2>/dev/null || true
-  docker volume rm $(docker volume ls -q) 2>/dev/null || true
-  docker network prune -f 2>/dev/null || true
-}
 
 # Check if a user exists
 check_existing_user() {
@@ -73,51 +66,39 @@ start_level() {
   local player_id=$2
   local container_name="${CONTAINER_NAME_PREFIX}_${player_id}_${level}"
 
-  # Clean up previous level artifacts
-  cleanup_docker
-
   # Dynamically construct the image name
-  local image_name="pranavg1203/meta2k25:${LEVEL_CONTAINERS[$((level))]}"
+  local image_name="ghcr.io/walchand-linux-users-group/wildwarrior44/wargame_finals:${LEVEL_CONTAINERS[$level]}"
 
   echo "Starting Level $level for $player_id. Please wait..."
 
-  # Check if the container already exists
-  if docker ps -a --format "{{.Names}}" | grep -q "^$container_name$"; then
-    # If the container is running, attach to it
-    if docker ps --format "{{.Names}}" | grep -q "^$container_name$"; then
-      echo "Container for Level $level is already running. Attaching..."
-      docker attach "$container_name"
-    else
-      # If the container exists but is stopped, restart and attach
-      echo "Restarting stopped container for Level $level..."
-      docker start -ai "$container_name"
-    fi
-  else
-    # If the container does not exist, create and run it
-    docker run -it \
-      -v /var/run/docker.sock:/var/run/docker.sock \
-      -v $(which docker):/usr/bin/docker \
-      -v /var/lib/docker/volumes:/var/lib/docker/volumes \
-      --name "$container_name" \
-      -e PLAYER_ID="$player_id" \
-      -e LEVEL="$level" \
-      -e SERVER_URL="$SERVER_URL" \
-      "$image_name" bash
-  fi
+  # Stop and remove any existing container with the same name
+  docker rm -f "$container_name" >/dev/null 2>&1 || true
 
-  # Check container logs after it exits
-  local logs
-  logs=$(docker logs "$container_name" 2>/dev/null || true) # Avoid error if logs are unavailable
+  # Run the container (without --rm to allow logs retrieval)
+  docker run -it --name "$container_name" \
+    -e PLAYER_ID="$player_id" \
+    -e LEVEL="$level" \
+    -e SERVER_URL="$SERVER_URL" \
+    "$image_name" bash
 
-  # Check for success pattern in logs
-  if [[ $logs =~ $SUCCESS_LOG_PATTERN ]]; then
+  # Get logs AFTER the container stops
+  logs=$(docker logs "$container_name" 2>/dev/null || true)
+
+  # Remove the container after checking logs
+  docker rm "$container_name" >/dev/null 2>&1 || true
+
+  # Debugging: Print logs to verify correctness
+  echo "Container logs: $logs"
+
+  # Check if success pattern is found in logs
+  if [[ ! -z "$logs" && "$logs" =~ $SUCCESS_LOG_PATTERN ]]; then
     echo "Congratulations! Proceeding to the next level..."
     local next_level=$((level + 1))
     echo "$player_id:$next_level" | sudo tee "$PLAYER_STATE_FILE" > /dev/null
-    start_level "$next_level" "$player_id"  # Start the next level
+    start_level "$next_level" "$player_id"
   else
     echo "You exited the level without solving it. Restarting Level $level..."
-    start_level "$level" "$player_id"  # Restart the current level
+    start_level "$level" "$player_id"
   fi
 }
 

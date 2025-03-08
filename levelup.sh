@@ -5,9 +5,6 @@ PLAYER_ID=${PLAYER_ID:-"unknown"}
 LEVEL=${LEVEL:-1}
 SERVER_URL=${SERVER_URL:-"http://172.17.0.1:5000/api/flag/submit"}
 
-# echo "PLAYER_ID=$PLAYER_ID"
-# echo "LEVEL=$LEVEL"
-# echo "SERVER_URL=$SERVER_URL"
 
 # Prompt for the flag
 echo "Enter the flag for Level $LEVEL:"
